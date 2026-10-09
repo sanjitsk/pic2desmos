@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pic2Desmos — turn any picture into one Desmos equation</title>
+  <meta name="description" content="Turn any picture into a single Desmos equation. Runs entirely in your browser.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232d70b3'/%3E%3Cpath d='M5 21c3-10 6-10 8-3s5 7 7-1 5-8 7 2' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // apply saved theme before first paint
+    try { const t = localStorage.getItem('p2d-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (_) {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M5 21c3-10 6-10 8-3s5 7 7-1 5-8 7 2"/></svg>
+      <div>
+        <h1>Pic2Desmos</h1>
+        <p class="tag">Any picture → <strong>one</strong> Desmos equation</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="engine" class="chip" title="Image-processing engine">Loading…</span>
+      <button id="themeBtn" class="icon-btn" type="button" aria-label="Theme: auto">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ LEFT COLUMN ============ -->
+    <div class="col">
+      <section class="card" aria-labelledby="h-pic">
+        <h2 id="h-pic"><span class="step">1</span> Picture</h2>
+
+        <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose an image, drop one here, or paste with Ctrl+V">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l4.5-4.5 3.5 3.5 3-3 5 5M4 5h16v14H4z"/><circle cx="9" cy="9" r="1.6"/></svg>
+          <p><strong>Drop an image</strong>, <label for="file" class="link">browse</label>, or press <kbd>Ctrl</kbd>+<kbd>V</kbd></p>
+          <p class="muted small">PNG · JPG · WebP · GIF · SVG</p>
+          <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="visually-hidden">
+        </div>
+
+        <div id="samples" class="samples" aria-label="Sample images"></div>
+
+        <div id="editor" class="editor" hidden>
+          <div class="toolbar" role="toolbar" aria-label="Crop and mask tools">
+            <div class="seg" role="radiogroup" aria-label="Tool">
+              <label><input type="radio" name="tool" value="crop" checked><span>Crop</span></label>
+              <label><input type="radio" name="tool" value="erase"><span>Erase</span></label>
+              <label><input type="radio" name="tool" value="restore"><span>Restore</span></label>
+            </div>
+            <label class="inline small" id="brushWrap">Brush
+              <input id="brush" type="range" min="4" max="80" value="24" aria-label="Brush size">
+            </label>
+          </div>
+          <canvas id="srcCanvas" class="src-canvas" aria-label="Source image. Drag to crop, or paint to erase background areas."></canvas>
+          <div class="row wrap gap-s">
+            <button id="resetCrop" type="button" class="btn ghost sm">Reset crop</button>
+            <button id="clearMask" type="button" class="btn ghost sm">Clear mask</button>
+            <label for="file" class="btn ghost sm" role="button" tabindex="0">Change image</label>
+          </div>
+          <p class="muted small hint">Tip: crop out borders and paint over busy backgrounds (trees, text, frames) — it's the single best quality fix.</p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-res">
+        <h2 id="h-res"><span class="step">2</span> Resolution</h2>
+
+        <div class="field">
+          <span class="label" id="lbl-preset">Preset</span>
+          <div class="seg full" role="radiogroup" aria-labelledby="lbl-preset" id="presetSeg">
+            <label><input type="radio" name="preset" value="low"><span>Low</span></label>
+            <label><input type="radio" name="preset" value="medium"><span>Medium</span></label>
+            <label><input type="radio" name="preset" value="high" checked><span>High</span></label>
+            <label><input type="radio" name="preset" value="max"><span>Max</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label" id="lbl-mode">Mode</span>
+          <div class="seg full" role="radiogroup" aria-labelledby="lbl-mode">
+            <label><input type="radio" name="mode" value="edges" checked><span>Line sketch</span></label>
+            <label><input type="radio" name="mode" value="silhouette"><span>Silhouette</span></label>
+            <label><input type="radio" name="mode" value="color"><span>Color</span></label>
+          </div>
+          <p id="modeHint" class="muted small"></p>
+        </div>
+
+        <details class="advanced" id="advanced">
+          <summary>Advanced</summary>
+          <div class="sliders" id="sliders"></div>
+          <div class="checks">
+            <label class="check" data-mode="silhouette"><input type="checkbox" id="invertSilhouette"> Invert silhouette (light = shape)</label>
+            <label class="check" data-mode="color"><input type="checkbox" id="skipBackground"> Skip background color</label>
+            <label class="check"><input type="checkbox" id="centerY"> Center picture on the origin</label>
+          </div>
+          <button id="resetSettings" type="button" class="btn ghost sm">Reset to defaults</button>
+        </details>
+      </section>
+    </div>
+
+    <!-- ============ RIGHT COLUMN ============ -->
+    <div class="col">
+      <section class="card" aria-labelledby="h-prev">
+        <div class="card-head">
+          <h2 id="h-prev"><span class="step">3</span> Preview</h2>
+          <div class="seg tabs" role="tablist" aria-label="Preview view">
+            <button role="tab" aria-selected="true" data-view="sketch" id="tab-sketch">Sketch</button>
+            <button role="tab" aria-selected="false" data-view="edges" id="tab-edges">Edges</button>
+            <button role="tab" aria-selected="false" data-view="desmos" id="tab-desmos">Desmos</button>
+          </div>
+        </div>
+
+        <div class="stage" id="stage">
+          <div class="empty" id="emptyState">
+            <p>Your sketch shows up here.</p>
+            <p class="muted small">Pick a sample on the left to try it.</p>
+          </div>
+          <canvas id="sketchCanvas" class="view active" data-view="sketch" aria-label="Sketch preview. Click a stroke to delete it."></canvas>
+          <canvas id="edgeCanvas" class="view" data-view="edges" aria-label="Raw edge detector output"></canvas>
+          <div id="desmosEl" class="view desmos" data-view="desmos" aria-label="Live Desmos calculator"></div>
+          <div id="busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busyText">Working…</span></div>
+        </div>
+
+        <div class="row wrap gap-s between preview-controls">
+          <div class="row wrap gap-s">
+            <label class="check small" data-view-only="sketch"><input type="checkbox" id="showOriginal"> Original underneath</label>
+            <label class="check small" data-view-only="edges"><input type="checkbox" id="invertEdges"> Invert edges</label>
+            <label class="check small"><input type="checkbox" id="autoVerify"> Auto-check in Desmos</label>
+          </div>
+          <div class="row gap-s">
+            <button id="undo" type="button" class="btn ghost sm" disabled title="Undo stroke delete (Ctrl+Z)">Undo</button>
+            <button id="restoreAll" type="button" class="btn ghost sm" disabled>Restore all</button>
+          </div>
+        </div>
+        <p class="muted small">Click a stroke in the sketch to delete stray marks.</p>
+
+        <div class="verify" id="verify" aria-live="polite">
+          <span id="verifyBadge" class="badge idle">Not checked yet</span>
+          <button id="verifyNow" type="button" class="btn ghost sm">Check now</button>
+        </div>
+
+        <div class="stats" id="stats" aria-live="polite">
+          <div class="stat"><span class="k">Strokes</span><span class="v" id="sStrokes">—</span></div>
+          <div class="stat"><span class="k">Characters</span><span class="v" id="sChars">—</span></div>
+          <div class="stat"><span class="k">Time</span><span class="v" id="sTime">—</span></div>
+          <div class="meter-wrap">
+            <div class="row between small"><span>List length (X and Y each)</span><span id="sList">0 / 10,000</span></div>
+            <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="10000" aria-valuenow="0" id="listMeter"><div id="listBar"></div></div>
+          </div>
+          <p id="warn" class="warn" hidden></p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-out">
+        <h2 id="h-out"><span class="step">4</span> Equation</h2>
+        <div id="layerTabs" class="layer-tabs" hidden></div>
+        <label for="eq" class="visually-hidden">Desmos equation</label>
+        <textarea id="eq" class="eq" readonly spellcheck="false" placeholder="The equation appears here."></textarea>
+        <div class="row wrap gap-s">
+          <button id="copy" type="button" class="btn primary big" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+            Copy equation
+          </button>
+          <button id="download" type="button" class="btn sm" disabled>Download .txt</button>
+          <a id="openDesmos" class="btn sm" href="https://www.desmos.com/calculator" target="_blank" rel="noopener">Open Desmos ↗</a>
+        </div>
+        <p class="muted small kbd-hint"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> copies the equation.</p>
+
+        <ol class="howto">
+          <li>Click the first expression line in Desmos.</li>
+          <li>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>V</kbd>.</li>
+          <li>Wait a few seconds. Optionally hide the grid and axes from the wrench menu.</li>
+        </ol>
+        <p id="viewportHint" class="muted small"></p>
+        <p class="muted small">Very long equations (over ~60k characters) paste fine on desktop but can lag; the phone app is unreliable with huge pastes.</p>
+
+        <details class="advanced">
+          <summary>Advanced: multi-expression mode</summary>
+          <p class="muted small">One parametric equation per stroke (0 ≤ t ≤ 1), handy for recoloring or editing single strokes. Paste all lines at once into the first expression line; Desmos puts each stroke on its own line.</p>
+          <div class="row wrap gap-s">
+            <button id="multiCopy" type="button" class="btn sm" disabled>Copy all lines</button>
+            <button id="multiDownload" type="button" class="btn sm" disabled>Download .txt</button>
+          </div>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <p><svg class="lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg> Your image is processed locally and never uploaded.</p>
+    <p class="muted small">Edge detection by OpenCV.js (with a built-in fallback). Graphs by the Desmos API.</p>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="status" class="visually-hidden" aria-live="polite"></div>
+
+  <script src="js/fourier.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
